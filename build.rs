@@ -109,8 +109,7 @@ fn build_tor(libevent: Artifacts) {
     return; */
 
     // TODO https://github.com/arlolra/tor/blob/master/INSTALL#L32
-    let openssl_dir =
-        PathBuf::from(env::var("DEP_OPENSSL_ROOT").expect("DEP_OPENSSL_ROOT expected"));
+    let openssl_dir = env::var("DEP_OPENSSL_ROOT").ok().map(PathBuf::from);
 
     let original_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tor-src");
     let root = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR expected"));
@@ -132,10 +131,8 @@ fn build_tor(libevent: Artifacts) {
         .env("CC", compiler.path())
         .with("libevent-dir", libevent.root.to_str())
         .cflag(format!("-I{}", libevent.include_dir.display()))
-        .with("openssl-dir", openssl_dir.to_str())
         .enable("pic", None)
         //.enable("static-tor", None)
-        .enable("static-openssl", None)
         .enable("static-libevent", None)
         .enable("static-zlib", None)
         .disable("system-torrc", None)
@@ -149,6 +146,12 @@ fn build_tor(libevent: Artifacts) {
         .disable("module-dirauth", None)
         .disable("seccomp", None)
         .disable("rust", None);
+
+    if let Some(dir) = &openssl_dir {
+        config
+            .with("openssl-dir", dir.to_str())
+            .enable("static-openssl", None);
+    }
 
     if target.contains("android") {
         // Apparently zlib is already there on Android https://github.com/rust-lang/libz-sys/blob/master/build.rs#L42
@@ -187,10 +190,12 @@ fn build_tor(libevent: Artifacts) {
 
     let tor = config.build();
 
-    println!(
-        "cargo:rustc-link-search=native={}",
-        openssl_dir.join("lib/").display()
-    );
+    if let Some(dir) = &openssl_dir {
+        println!(
+            "cargo:rustc-link-search=native={}",
+            dir.join("lib/").display()
+        );
+    }
     println!(
         "cargo:rustc-link-search=native={}",
         tor.join("build/src/core").display()
@@ -219,8 +224,13 @@ fn build_tor(libevent: Artifacts) {
     println!("cargo:rustc-link-lib=static={}", "event");
     println!("cargo:rustc-link-lib=static={}", "event_pthreads");
 
-    println!("cargo:rustc-link-lib=static={}", "crypto");
-    println!("cargo:rustc-link-lib=static={}", "ssl");
+    if openssl_dir.is_some() {
+        println!("cargo:rustc-link-lib=static={}", "crypto");
+        println!("cargo:rustc-link-lib=static={}", "ssl");
+    } else {
+        println!("cargo:rustc-link-lib={}", "crypto");
+        println!("cargo:rustc-link-lib={}", "ssl");
+    }
 
     println!("cargo:rustc-link-lib=static={}", "z");
 
